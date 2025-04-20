@@ -22,7 +22,7 @@ args = "maze_game"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Maze Game Web Server"
+args = "Web Maze Game"
 
 [[workflows.workflow]]
 name = "Maze Game"
@@ -54,7 +54,7 @@ task = "shell.exec"
 args = "python main.py"
 
 [[workflows.workflow]]
-name = "Maze Game Web Server"
+name = "Web Maze Game"
 author = "agent"
 
 [workflows.workflow.metadata]
@@ -65,7 +65,7 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python web_server.py"
+args = "python simple_maze_game.py"
 waitForPort = 5000
 
 [deployment]
@@ -74,3 +74,7 @@ run = ["sh", "-c", "python main.py"]
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[[ports]]
+localPort = 5001
+externalPort = 3000
