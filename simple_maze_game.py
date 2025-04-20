@@ -399,8 +399,10 @@ def run_server():
 
 if __name__ == "__main__":
     # Create the HTML file
-    with open('simple_maze_game.html', 'w') as f:
-        f.write("""<!DOCTYPE html>
+    # with open('simple_maze_game.html', 'w') as f:
+    #     f.write("""<!DOCTYPE html>
+    with open('simple_maze_game.html', 'w', encoding='utf-8') as f:
+      f.write("""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
