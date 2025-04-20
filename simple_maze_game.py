@@ -130,6 +130,76 @@ class SimpleMazeGame:
     def check_trap(x, y):
         """Check if position (x, y) contains a trap"""
         return game_state["maze"][x][y] == CELL_TRAP
+        
+    @staticmethod
+    def use_token(token_type, x=None, y=None):
+        """Use a token for a special action"""
+        if not game_state["player_turn"] or game_state["game_over"]:
+            return {"success": False, "message": "Not player's turn or game over"}
+            
+        if game_state["player_tokens"] <= 0:
+            return {"success": False, "message": "No tokens left"}
+        
+        success = False
+        message = "Invalid token action"
+        
+        # Place wall
+        if token_type == "wall" and x is not None and y is not None:
+            # Check if valid position for placing wall
+            if 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE and game_state["maze"][x][y] == CELL_EMPTY:
+                game_state["maze"][x][y] = CELL_WALL
+                success = True
+                message = "Wall placed successfully"
+            else:
+                message = "Cannot place wall here"
+        
+        # Remove trap
+        elif token_type == "remove_trap":
+            x, y = game_state["player_x"], game_state["player_y"]
+            
+            # Check adjacent cells for traps
+            for dx, dy in [(0, 0), (0, 1), (1, 0), (0, -1), (-1, 0)]:
+                new_x, new_y = x + dx, y + dy
+                if 0 <= new_x < GRID_SIZE and 0 <= new_y < GRID_SIZE and game_state["maze"][new_x][new_y] == CELL_TRAP:
+                    game_state["maze"][new_x][new_y] = CELL_EMPTY
+                    success = True
+                    message = "Trap removed successfully"
+                    break
+            
+            if not success:
+                message = "No trap found in your position or adjacent cells"
+        
+        # Teleport
+        elif token_type == "teleport" and x is not None and y is not None:
+            # Check if player has visited position
+            if game_state["visited_player"][x][y]:
+                # Cannot teleport to current position
+                if x == game_state["player_x"] and y == game_state["player_y"]:
+                    message = "Already at this position"
+                else:
+                    game_state["player_x"] = x
+                    game_state["player_y"] = y
+                    success = True
+                    message = "Teleported successfully"
+            else:
+                message = "Cannot teleport to a position you haven't visited"
+        
+        # If action was successful, use a token and end player's turn
+        if success:
+            game_state["player_tokens"] -= 1
+            game_state["player_turn"] = False
+            
+            # AI's turn
+            SimpleMazeGame.ai_make_move()
+            
+            # Check if round is complete
+            if game_state["current_round"] >= 20:
+                game_state["game_over"] = True
+            else:
+                game_state["current_round"] += 1
+                game_state["player_turn"] = True
+        
+        return {"success": success, "message": message, "state": game_state}
     
     @staticmethod
     def player_move(dx, dy):
@@ -144,6 +214,10 @@ class SimpleMazeGame:
         if not SimpleMazeGame.is_valid_move(new_x, new_y):
             return {"success": False, "message": "Invalid move"}
         
+        # Check for trap - prevent moving onto trap unless removed
+        if SimpleMazeGame.check_trap(new_x, new_y):
+            return {"success": False, "message": "Cannot move onto trap. Use a token to remove it first."}
+        
         # Execute the move
         game_state["player_x"] = new_x
         game_state["player_y"] = new_y
@@ -153,10 +227,6 @@ class SimpleMazeGame:
         
         # Check for gem collection
         SimpleMazeGame.collect_gem(new_x, new_y, True)
-        
-        # Check for trap
-        if SimpleMazeGame.check_trap(new_x, new_y):
-            game_state["player_score"] -= 5
         
         # Switch to AI's turn
         game_state["player_turn"] = False
@@ -256,6 +326,27 @@ class SimpleHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(result).encode())
                 
+        elif self.path.startswith('/api/token/'):
+            parts = self.path.split('/')
+            token_type = parts[-1]
+            
+            # For token types that need coordinates
+            x, y = None, None
+            if len(parts) > 4:  # Format: /api/token/TYPE/X/Y
+                try:
+                    x = int(parts[-2])
+                    y = int(parts[-3])
+                except (ValueError, IndexError):
+                    pass
+            
+            result = SimpleMazeGame.use_token(token_type, x, y)
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode())
+            
         elif self.path == '/api/reset':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -373,6 +464,46 @@ if __name__ == "__main__":
             color: #40e0d0;
             margin-top: 0;
         }
+        .token-btn {
+            background-color: #7061db;
+            color: white;
+            width: 100%;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .token-btn-disabled {
+            background-color: #3a3a3a;
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .token-actions {
+            display: flex;
+            flex-direction: column;
+            margin: 20px 0;
+            width: 100%;
+        }
+        .token-count {
+            color: #7061db;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .message {
+            color: #ff6b6b;
+            margin: 10px 0;
+            min-height: 20px;
+        }
+        .teleport-mode, .wall-mode {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -395,7 +526,13 @@ if __name__ == "__main__":
             <div>Tokens: <span id="playerTokens">3</span></div>
         </div>
         
-        <canvas id="mazeCanvas" class="maze-canvas" width="500" height="500"></canvas>
+        <div class="maze-container" style="position: relative;">
+            <canvas id="mazeCanvas" class="maze-canvas" width="500" height="500"></canvas>
+            <div id="teleportMode" class="teleport-mode">Teleport Mode: Click a visited cell</div>
+            <div id="wallMode" class="wall-mode">Wall Mode: Click an empty cell</div>
+        </div>
+        
+        <div class="message" id="messageArea"></div>
         
         <div class="controls">
             <div></div>
@@ -407,6 +544,12 @@ if __name__ == "__main__":
             <div></div>
             <button id="downBtn" class="btn control-btn">↓</button>
             <div></div>
+        </div>
+        
+        <div class="token-actions">
+            <button id="wallBtn" class="btn token-btn">Place Wall <span>(1 token)</span></button>
+            <button id="trapBtn" class="btn token-btn">Remove Trap <span>(1 token)</span></button>
+            <button id="teleportBtn" class="btn token-btn">Teleport <span>(1 token)</span></button>
         </div>
         
         <button id="resetBtn" class="btn">New Game</button>
@@ -437,6 +580,18 @@ if __name__ == "__main__":
         const gameOverPanel = document.getElementById('gameOver');
         const winnerText = document.getElementById('winnerText');
         const playAgainBtn = document.getElementById('playAgainBtn');
+        
+        // Token elements
+        const wallBtn = document.getElementById('wallBtn');
+        const trapBtn = document.getElementById('trapBtn');
+        const teleportBtn = document.getElementById('teleportBtn');
+        const messageArea = document.getElementById('messageArea');
+        const teleportMode = document.getElementById('teleportMode');
+        const wallMode = document.getElementById('wallMode');
+        
+        // Token action states
+        let isTeleportMode = false;
+        let isWallMode = false;
         
         // Display elements
         const roundDisplay = document.getElementById('roundDisplay');
@@ -507,6 +662,27 @@ if __name__ == "__main__":
             playerGemsDisplay.textContent = gameState.player_gems;
             aiGemsDisplay.textContent = gameState.ai_gems;
             playerTokensDisplay.textContent = gameState.player_tokens;
+            
+            // Update token button states
+            const hasTokens = gameState.player_tokens > 0;
+            const isPlayerTurn = gameState.player_turn;
+            const isGameOver = gameState.game_over;
+            
+            // Disable token buttons if no tokens or not player's turn
+            if (!hasTokens || !isPlayerTurn || isGameOver) {
+                wallBtn.classList.add('token-btn-disabled');
+                trapBtn.classList.add('token-btn-disabled');
+                teleportBtn.classList.add('token-btn-disabled');
+            } else {
+                wallBtn.classList.remove('token-btn-disabled');
+                trapBtn.classList.remove('token-btn-disabled');
+                teleportBtn.classList.remove('token-btn-disabled');
+            }
+            
+            // Exit special modes if not player's turn or game over
+            if (!isPlayerTurn || isGameOver) {
+                exitSpecialModes();
+            }
         }
         
         // Check if game is over
@@ -610,6 +786,67 @@ if __name__ == "__main__":
             ctx.fillRect(aiX + 5, aiY + 5, CELL_SIZE - 10, CELL_SIZE - 10);
         }
         
+        // Use token function
+        async function useToken(tokenType, x = null, y = null) {
+            if (!gameState.player_turn || gameState.game_over) return;
+            if (gameState.player_tokens <= 0) {
+                messageArea.textContent = "No tokens left!";
+                return;
+            }
+            
+            let url = `/api/token/${tokenType}`;
+            if (x !== null && y !== null) {
+                url = `/api/token/${tokenType}/${x}/${y}`;
+            }
+            
+            try {
+                const response = await fetch(url);
+                const result = await response.json();
+                
+                messageArea.textContent = result.message;
+                
+                if (result.success) {
+                    gameState = result.state;
+                    updateUI();
+                    drawMaze();
+                    checkGameOver();
+                    
+                    // Exit special modes
+                    exitSpecialModes();
+                }
+            } catch (error) {
+                console.error(`Error using token (${tokenType}):`, error);
+            }
+        }
+        
+        // Exit special modes (teleport, wall placement)
+        function exitSpecialModes() {
+            isTeleportMode = false;
+            isWallMode = false;
+            teleportMode.style.display = 'none';
+            wallMode.style.display = 'none';
+        }
+        
+        // Canvas click handler
+        canvas.addEventListener('click', (event) => {
+            if (!gameState.player_turn || gameState.game_over) return;
+            
+            // Get grid coordinates from click position
+            const rect = canvas.getBoundingClientRect();
+            const clickX = event.clientX - rect.left;
+            const clickY = event.clientY - rect.top;
+            
+            const gridX = Math.floor(clickX / CELL_SIZE);
+            const gridY = Math.floor(clickY / CELL_SIZE);
+            
+            // Handle special modes
+            if (isTeleportMode) {
+                useToken('teleport', gridX, gridY);
+            } else if (isWallMode) {
+                useToken('wall', gridX, gridY);
+            }
+        });
+        
         // Event listeners
         upBtn.addEventListener('click', () => movePlayer('up'));
         downBtn.addEventListener('click', () => movePlayer('down'));
@@ -617,6 +854,35 @@ if __name__ == "__main__":
         rightBtn.addEventListener('click', () => movePlayer('right'));
         resetBtn.addEventListener('click', resetGame);
         playAgainBtn.addEventListener('click', resetGame);
+        
+        // Token button event listeners
+        wallBtn.addEventListener('click', () => {
+            if (gameState.player_tokens <= 0) {
+                messageArea.textContent = "No tokens left!";
+                return;
+            }
+            isWallMode = true;
+            isTeleportMode = false;
+            wallMode.style.display = 'block';
+            teleportMode.style.display = 'none';
+            messageArea.textContent = "Click an empty cell to place a wall.";
+        });
+        
+        trapBtn.addEventListener('click', () => {
+            useToken('remove_trap');
+        });
+        
+        teleportBtn.addEventListener('click', () => {
+            if (gameState.player_tokens <= 0) {
+                messageArea.textContent = "No tokens left!";
+                return;
+            }
+            isTeleportMode = true;
+            isWallMode = false;
+            teleportMode.style.display = 'block';
+            wallMode.style.display = 'none';
+            messageArea.textContent = "Click a visited cell to teleport.";
+        });
         
         // Keyboard controls
         document.addEventListener('keydown', (event) => {
@@ -634,6 +900,19 @@ if __name__ == "__main__":
                     break;
                 case 'ArrowRight':
                     movePlayer('right');
+                    break;
+                case '1':
+                    wallBtn.click();
+                    break;
+                case '2':
+                    trapBtn.click();
+                    break;
+                case '3':
+                    teleportBtn.click();
+                    break;
+                case 'Escape':
+                    exitSpecialModes();
+                    messageArea.textContent = "";
                     break;
                 case 'r':
                     resetGame();
