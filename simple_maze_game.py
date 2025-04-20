@@ -145,13 +145,22 @@ class SimpleMazeGame:
         
         # Place wall
         if token_type == "wall" and x is not None and y is not None:
-            # Check if valid position for placing wall
-            if 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE and game_state["maze"][x][y] == CELL_EMPTY:
-                game_state["maze"][x][y] = CELL_WALL
-                success = True
-                message = "Wall placed successfully"
+            # Check if valid coordinates
+            if 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE:
+                # Check if valid position for placing wall (must be empty)
+                if game_state["maze"][x][y] == CELL_EMPTY:
+                    # Make sure we're not blocking the player or AI
+                    if (x != game_state["player_x"] or y != game_state["player_y"]) and \
+                       (x != game_state["ai_x"] or y != game_state["ai_y"]):
+                        game_state["maze"][x][y] = CELL_WALL
+                        success = True
+                        message = "Wall placed successfully"
+                    else:
+                        message = "Cannot place wall on player or AI position"
+                else:
+                    message = "Cannot place wall here, cell not empty"
             else:
-                message = "Cannot place wall here"
+                message = "Invalid coordinates for wall placement"
         
         # Remove trap
         elif token_type == "remove_trap":
@@ -171,18 +180,22 @@ class SimpleMazeGame:
         
         # Teleport
         elif token_type == "teleport" and x is not None and y is not None:
-            # Check if player has visited position
-            if game_state["visited_player"][x][y]:
-                # Cannot teleport to current position
-                if x == game_state["player_x"] and y == game_state["player_y"]:
-                    message = "Already at this position"
+            # Check if valid coordinates
+            if 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE:
+                # Check if player has visited position
+                if game_state["visited_player"][x][y]:
+                    # Cannot teleport to current position
+                    if x == game_state["player_x"] and y == game_state["player_y"]:
+                        message = "Already at this position"
+                    else:
+                        game_state["player_x"] = x
+                        game_state["player_y"] = y
+                        success = True
+                        message = "Teleported successfully"
                 else:
-                    game_state["player_x"] = x
-                    game_state["player_y"] = y
-                    success = True
-                    message = "Teleported successfully"
+                    message = "Cannot teleport to a position you haven't visited"
             else:
-                message = "Cannot teleport to a position you haven't visited"
+                message = "Invalid coordinates for teleport"
         
         # If action was successful, use a token and end player's turn
         if success:
@@ -327,17 +340,32 @@ class SimpleHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(result).encode())
                 
         elif self.path.startswith('/api/token/'):
-            parts = self.path.split('/')
+            # Extract token_type from path
+            path_without_query = self.path.split('?')[0]
+            parts = path_without_query.split('/')
             token_type = parts[-1]
             
             # For token types that need coordinates
             x, y = None, None
-            if len(parts) > 4:  # Format: /api/token/TYPE/X/Y
-                try:
-                    x = int(parts[-2])
-                    y = int(parts[-3])
-                except (ValueError, IndexError):
-                    pass
+            # Check for query parameters
+            if '?' in self.path:
+                path_parts = self.path.split('?')
+                if len(path_parts) > 1:
+                    query = path_parts[1]
+                    query_parts = query.split('&')
+                    for part in query_parts:
+                        if '=' in part:
+                            key, value = part.split('=')
+                            if key == 'x':
+                                try:
+                                    x = int(value)
+                                except ValueError:
+                                    pass
+                            elif key == 'y':
+                                try:
+                                    y = int(value)
+                                except ValueError:
+                                    pass
             
             result = SimpleMazeGame.use_token(token_type, x, y)
             
@@ -498,11 +526,29 @@ if __name__ == "__main__":
             position: absolute;
             top: 10px;
             left: 10px;
-            background-color: rgba(0, 0, 0, 0.7);
+            background-color: rgba(112, 97, 219, 0.8);
             color: white;
-            padding: 5px 10px;
+            padding: 10px 15px;
             border-radius: 5px;
             display: none;
+            font-weight: bold;
+            z-index: 100;
+        }
+        
+        .maze-container {
+            position: relative;
+            margin-bottom: 10px;
+        }
+        
+        .message {
+            color: #ff6b6b;
+            margin: 10px 0;
+            min-height: 20px;
+            padding: 8px;
+            text-align: center;
+            font-weight: bold;
+            border-radius: 5px;
+            transition: all 0.3s ease;
         }
     </style>
 </head>
@@ -796,7 +842,7 @@ if __name__ == "__main__":
             
             let url = `/api/token/${tokenType}`;
             if (x !== null && y !== null) {
-                url = `/api/token/${tokenType}/${x}/${y}`;
+                url = `/api/token/${tokenType}?x=${x}&y=${y}`;
             }
             
             try {

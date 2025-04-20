@@ -422,7 +422,7 @@
             
             let url = `/api/token/${tokenType}`;
             if (x !== null && y !== null) {
-                url = `/api/token/${tokenType}/${x}/${y}`;
+                url = `/api/token/${tokenType}?x=${x}&y=${y}`;
             }
             
             try {
